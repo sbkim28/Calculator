@@ -1,7 +1,7 @@
 package com.ignited;
 
 import java.util.LinkedList;
-import java.util.Stack;
+import java.util.NoSuchElementException;
 import java.util.logging.Logger;
 
 public class Expression {
@@ -9,16 +9,87 @@ public class Expression {
     private static final Logger LOGGER = Logger.getLogger(Expression.class.getName());
 
     private String exp;
+    private double value;
 
     public Expression(String exp) {
         this.exp = exp;
-        initStack(exp);
-        //LOGGER.info(comparePriority('*', '+') + ", " + comparePriority('+', '*'));
+        value = calculateStack(initStack(parse(exp)));
+        LOGGER.info(value + "");
     }
 
-    private void initStack(String exp){
+    private double calculateStack(LinkedList<Object> stack){
+        LinkedStack<Double> numbers = new LinkedStack<>();
 
-        LinkedStack<Object> stack = new LinkedStack<>();
+        while (!stack.isEmpty()){
+            Object t = stack.pop();
+            if(t instanceof Double){
+                numbers.push((Double) t);
+
+            }else if(t instanceof Character){
+                double l;
+                double f;
+                try {
+                    l = numbers.pop();
+                    f = numbers.pop();
+                }catch (NoSuchElementException e){
+                    throw new ExpressionFormatException("Malformed Expression. (exp=" + exp + ")");
+                }
+
+                switch ((char) t){
+                    case '+' :
+                        numbers.push(f + l);
+                        break;
+                    case '-' :
+                        numbers.push(f - l);
+                        break;
+                    case '*':
+                        numbers.push(f * l);
+                        break;
+                    case '/':
+                        numbers.push(f / l);
+                        break;
+                    case '^':
+                        numbers.push(Math.pow(f, l));
+                        break;
+                    default:
+                        throw new ExpressionFormatException("Illegal operator (operator=" + t + ")");
+                }
+            }
+        }
+
+        if(numbers.isEmpty())
+            throw new ExpressionFormatException("Malformed Expression. (exp=" + exp + ")");
+
+        double result = numbers.pop();
+
+        if(!numbers.isEmpty())
+            throw new ExpressionFormatException("Malformed Expression. (exp=" + exp + ")");
+
+        return result;
+    }
+
+    private String parse(String exp){
+        StringBuilder builder = new StringBuilder().append(exp);
+        for (int i = 0;i<builder.length();++i){
+            char c = builder.charAt(i);
+            if(c == '-'){
+                if(i == 0 || builder.charAt(i-1) < '0' || builder.charAt(i-1) > '9' ){
+                    builder.insert(++i, "1*");
+                    ++i;
+                }
+            }else if(c == '(' && i != 0){
+                char n = builder.charAt(i - 1);
+                if((n >= '0' && n <= '9') || n == ')' || n == '}' || n == ']'){
+                    builder.insert(i++, "*");
+                }
+            }
+        }
+        LOGGER.info(builder.toString());
+        return builder.toString();
+    }
+
+    private LinkedList<Object> initStack(String exp){
+        LinkedList<Object> calc = new LinkedList<>();
         LinkedStack<Character> operatorStack = new LinkedStack<>();
         StringBuilder numberBuilder = new StringBuilder();
 
@@ -30,51 +101,100 @@ public class Expression {
                 numberBuilder.append(c);
                 flag = true;
             } else {
-                if (!flag && (c == '+' || c == '-')) {
+                if (!flag && (c == '-')) {
                     numberBuilder.append(c);
                     flag = true;
                 } else {
                     switch (c) {
+                        case '(':
+                        case '{':
+                        case '[':
+                            flag = false;
+                            operatorStack.push(c);
+                            break;
+
+                        case ')':
+                            if(numberBuilder.length() != 0) {
+                                numberPush(calc, numberBuilder.toString());
+                            }
+                            numberBuilder = new StringBuilder();
+                            bracketHandle(operatorStack, calc, '(');
+                            flag = true;
+                            break;
+                        case '}':
+                            if(numberBuilder.length() != 0) {
+                                numberPush(calc, numberBuilder.toString());
+                            }
+                            numberBuilder = new StringBuilder();
+                            bracketHandle(operatorStack, calc,'{');
+                            flag = true;
+                            break;
+                        case ']':
+                            if(numberBuilder.length() != 0) {
+                                numberPush(calc, numberBuilder.toString());
+                            }
+                            numberBuilder = new StringBuilder();
+                            bracketHandle(operatorStack, calc,'[');
+                            flag = true;
+                            break;
+
+                        case '^':
                         case '+':
                         case '-':
                         case '*':
                         case '/':
                             flag = false;
-                            numberPush(stack, numberBuilder.toString());
+                            if(numberBuilder.length() != 0) {
+                                numberPush(calc, numberBuilder.toString());
+                            }
                             numberBuilder = new StringBuilder();
 
                             while (!operatorStack.isEmpty()) {
                                 char prev = operatorStack.poll();
                                 int compare = comparePriority(prev, c);
                                 if (compare >= 0) {
-                                    stack.push(operatorStack.pop());
+                                    calc.add(operatorStack.pop());
                                 } else {
                                     break;
                                 }
                             }
 
-
                             operatorStack.push(c);
+                            break;
+
+
+                            default:throw new ExpressionFormatException("Invalid operator");
                     }
                 }
             }
         }
-        double v;
 
-        try {
-            v = Double.parseDouble(numberBuilder.toString());
-        } catch (NumberFormatException e) {
-            throw new ExpressionFormatException("Parsing number failed (number=" + numberBuilder + ", expression=" + exp + ")", e);
+        if(numberBuilder.length() != 0) {
+            double v;
+            try {
+                v = Double.parseDouble(numberBuilder.toString());
+            } catch (NumberFormatException e) {
+                throw new ExpressionFormatException("Parsing number failed (number=" + numberBuilder + ", expression=" + exp + ")", e);
+            }
+            calc.add(v);
         }
-        stack.push(v);
         while (!operatorStack.isEmpty()) {
-            stack.push(operatorStack.pop());
+            calc.add(operatorStack.pop());
         }
 
-        LOGGER.info(String.valueOf(stack.top));
+        LOGGER.info(String.valueOf(calc));
+        return calc;
     }
 
-    private void numberPush(LinkedStack<Object> stack, String value){
+    private void bracketHandle(LinkedStack<Character> operator, LinkedList<Object> calc, char until){
+        char c;
+        while (!operator.isEmpty()
+                && (c = operator.pop()) != until){
+            calc.add(c);
+        }
+    }
+
+    private void numberPush(LinkedList<Object> calc, String value){
         double v;
 
         try {
@@ -82,7 +202,7 @@ public class Expression {
         } catch (NumberFormatException e) {
             throw new ExpressionFormatException("Parsing number failed (number=" + value + ", expression=" + exp + ")", e);
         }
-        stack.push(v);
+        calc.add(v);
 
     }
 
@@ -94,8 +214,11 @@ public class Expression {
 
     private int getPriority(char c){
         switch (c){
-            case '\0' :
-                return Integer.MAX_VALUE;
+            case '(': case '{' : case '[' :
+                case ')' : case '}' : case ']' :
+                return 1;
+            case '^' :
+                return 7;
             case '*' : case '/' :
                 return 5;
             case '+' : case '-' :
@@ -122,7 +245,7 @@ public class Expression {
 
         public E pop() {
             if(top == null){
-                return null;
+                throw new NoSuchElementException("Empty");
             }
             E data = top.data;
             top = top.link;
@@ -131,7 +254,7 @@ public class Expression {
 
         public E poll(){
             if(top == null){
-                return null;
+                throw new NoSuchElementException("Empty");
             }
             return top.data;
         }
